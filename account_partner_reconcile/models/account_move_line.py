@@ -20,4 +20,6 @@ class AccountMoveLine(models.Model):
                 partners.add(line.partner_id.id)
         if len(partners) > 1:
             raise UserError(_('The partner has to be the same on all lines for receivable and payable accounts!'))
+        if len(partners) and not all([l.partner_id for l in self]):
+            raise UserError(_('You cannot match entries with and without partner!'))
         return super(AccountMoveLine, self).reconcile(writeoff_acc_id, writeoff_journal_id)
