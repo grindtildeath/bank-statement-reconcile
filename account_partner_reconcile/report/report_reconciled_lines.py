@@ -6,12 +6,37 @@
 from odoo import api, fields, models, tools
 
 
-class AccountMoveLinesReconciledReport(models.Model):
-    _name = 'account.move.reconciled.report'
+class AccountReconcilePartnerMismatchReport(models.Model):
+    _name = 'account.reconcile.partner.mismatch.report'
     _auto = False
 
-    account_move_id = fields.Many2one('account.move.line',
-                                      string="Account move")
+    partial_reconcile_id = fields.Many2one(
+        'account.partial.reconcile',
+        string="Partial Reconcile"
+    )
+    full_reconcile_id = fields.Many2one('account.full.reconcile')
+    debit_move_id = fields.Many2one('account.move.line', string="Debit move")
+    debit_amount = fields.Float("Debit amount")
+    debit_partner_id = fields.Many2one('res.partner', string="Debit partner")
+    debit_account_id = fields.Many2one(
+        'account.account',
+        string="Debit account"
+    )
+    debit_account_type_id = fields.Many2one(
+        'account.account.type',
+        string="Debit account type",
+    )
+    credit_move_id = fields.Many2one('account.move.line', string="Credit move")
+    credit_amount = fields.Float("Credit amount")
+    credit_partner_id = fields.Many2one('res.partner', string="Credit partner")
+    credit_account_id = fields.Many2one(
+        'account.account',
+        string="Credit account"
+    )
+    credit_account_type_id = fields.Many2one(
+        'account.account.type',
+        string="Credit account type",
+    )
 
     @api.model_cr
     def init(self):
@@ -19,19 +44,28 @@ class AccountMoveLinesReconciledReport(models.Model):
         tools.drop_view_if_exists(self.env.cr, self._table)
         self._cr.execute(
             """CREATE OR REPLACE VIEW %s AS (
-                    WITH CTE AS (
-                    SELECT  daml.id daml_id, caml.id caml_id, pr.id
+                    SELECT pr.id id
+                    , pr.id partial_reconcile_id
+                    , pr.full_reconcile_id
+                    , pr.debit_move_id
+                    , daml.debit debit_amount
+                    , daat.id debit_account_type_id
+                    , daml.partner_id debit_partner_id
+                    , daml.account_id debit_account_id
+                    , pr.credit_move_id
+                    , caml.credit credit_amount
+                    , caat.id credit_account_type_id
+                    , caml.partner_id credit_partner_id
+                    , caml.account_id credit_account_id
                     FROM account_partial_reconcile  pr
                     LEFT JOIN account_move_line daml
                         ON daml.id = pr.debit_move_id
                     LEFT JOIN account_move_line caml
                         ON caml.id = pr.credit_move_id
-                    LEFT JOIN account_account daa ON daa.id = daml.account_id
-                    LEFT JOIN account_account caa ON caa.id = caml.account_id
                     LEFT JOIN account_account_type daat
-                        ON daa.user_type_id = daat.id
+                        ON daml.user_type_id = daat.id
                     LEFT JOIN account_account_type caat
-                        ON caa.user_type_id = caat.id
+                        ON caml.user_type_id = caat.id
                     WHERE (daat.type in ('receivable', 'payable')
                     OR caat.type in ('receivable', 'payable'))
                     AND (daml.partner_id <> caml.partner_id
@@ -40,34 +74,6 @@ class AccountMoveLinesReconciledReport(models.Model):
                     OR (caml.partner_id IS NULL
                         AND daml.partner_id IS NOT NULL))
                 )
-                    SELECT CTE.daml_id as id,
-                        CTE.daml_id as account_move_id  FROM CTE
-                UNION
-                    SELECT CTE.caml_id as id,
-                        CTE.caml_id as account_move_id  FROM CTE
-                UNION
-                    SELECT faml.id as id,
-                        faml.id as account_move_id
-                        FROM account_move_line faml
-                        LEFT JOIN account_full_reconcile fr
-                            ON faml.full_reconcile_id = fr.id
-                        LEFT JOIN account_move_line saml
-                            ON saml.full_reconcile_id = fr.id
-                        JOIN account_account faa ON faa.id = faml.account_id
-                        JOIN account_account saa ON saa.id = saml.account_id
-                        JOIN account_account_type faat
-                            ON faa.user_type_id = faat.id
-                        JOIN account_account_type saat
-                            ON saa.user_type_id = saat.id
-                        WHERE (faat.type in ('receivable', 'payable')
-                        OR saat.type in ('receivable', 'payable'))
-                        AND faml.id <> saml.id
-                        AND (faml.partner_id <> saml.partner_id
-                        OR (faml.partner_id IS NULL
-                            AND saml.partner_id IS NOT NULL)
-                        OR (saml.partner_id IS NULL
-                            AND faml.partner_id IS NOT NULL))
-            )
         """
             % self._table
         )
