@@ -245,7 +245,6 @@ class AccountJournal(models.Model):
             'debit_cash_basic': values['debit'],
             'credit_cash_basic': values['credit'],
             'balance_cash_basic': values['debit'] - values['credit'],
-            'ref': move.ref,
             'user_type_id': account.user_type_id.id,
             'reconciled': False,
         })
