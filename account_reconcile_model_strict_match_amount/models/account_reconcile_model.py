@@ -13,32 +13,58 @@ class AccountReconcileModel(models.Model):
         "statement line communication matching exactly existing entries.",
     )
 
-    @api.multi
     def _get_select_communication_flag(self):
         if not self.match_total_amount or not self.strict_match_total_amount:
             return super()._get_select_communication_flag()
         else:
-            regexp = r"'[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'), '\s+'"
-            return r"""
-                -- Determine a matching or not with the statement line communication using the move.name or move.ref.
-                -- only digits are considered and reference are split by any space characters
+            return r'''
+                -- Determine a matching or not with the statement line communication using the aml.name, move.name or move.ref.
                 COALESCE(
-                    regexp_split_to_array(substring(REGEXP_REPLACE(move.name, {regexp})
-                    && regexp_split_to_array(substring(REGEXP_REPLACE(st_line.name, {regexp})
-                    OR
-                    (
-                        move.ref IS NOT NULL
-                        AND
-                            regexp_split_to_array(substring(REGEXP_REPLACE(move.ref, {regexp})
-                            &&
-                            regexp_split_to_array(substring(REGEXP_REPLACE(st_line.name, {regexp})
-                ), FALSE)
+                (
+                    aml.name IS NOT NULL
+                    AND
+                    substring(REGEXP_REPLACE(aml.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*') != ''
+                    AND
+                        regexp_split_to_array(substring(REGEXP_REPLACE(aml.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'),'\s+')
+                        && regexp_split_to_array(substring(REGEXP_REPLACE(st_line.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'), '\s+')
+                )
+                OR
+                    regexp_split_to_array(substring(REGEXP_REPLACE(move.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'),'\s+')
+                    && regexp_split_to_array(substring(REGEXP_REPLACE(st_line.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'), '\s+')
+                OR
+                (
+                    move.ref IS NOT NULL
+                    AND
+                    substring(REGEXP_REPLACE(move.ref, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*') != ''
+                    AND
+                        regexp_split_to_array(substring(REGEXP_REPLACE(move.ref, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'),'\s+')
+                        && regexp_split_to_array(substring(REGEXP_REPLACE(st_line.name, '[^0-9|^\s]', '', 'g'), '\S(?:.*\S)*'), '\s+')
+                )
+                , FALSE)
                 AND
                 CASE
                     WHEN abs(st_line.amount) < abs(aml.balance) THEN abs(st_line.amount) / abs(aml.balance) * 100
                     WHEN abs(st_line.amount) > abs(aml.balance) THEN abs(aml.balance) / abs(st_line.amount) * 100
                     ELSE 100
                 END >= {match_total_amount_param} AS communication_flag
-            """.format(
-                regexp=regexp, match_total_amount_param=self.match_total_amount_param
-            )
+            '''.format(match_total_amount_param=self.match_total_amount_param)
+
+    def _get_select_payment_reference_flag(self):
+        if not self.match_total_amount or not self.strict_match_total_amount:
+            return super()._get_select_payment_reference_flag()
+        else:
+            return r'''
+                -- Determine a matching or not with the statement line communication using the move.invoice_payment_ref.
+                COALESCE
+                (
+                    move.invoice_payment_ref IS NOT NULL
+                    AND
+                    regexp_replace(move.invoice_payment_ref, '\s+', '', 'g') = regexp_replace(st_line.name, '\s+', '', 'g')
+                , FALSE)
+                AND
+                CASE
+                    WHEN abs(st_line.amount) < abs(aml.balance) THEN abs(st_line.amount) / abs(aml.balance) * 100
+                    WHEN abs(st_line.amount) > abs(aml.balance) THEN abs(aml.balance) / abs(st_line.amount) * 100
+                    ELSE 100
+                END >= {match_total_amount_param} AS payment_reference_flag
+            '''.format(match_total_amount_param=self.match_total_amount_param)
